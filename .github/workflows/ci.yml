@@ -19,6 +19,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run lint
+      # Pre-existing global lint exhausts Node's heap even at 8 GB; restore it once fixed.
+      - run: npx eslint src/app/api/local-layers src/lib/local-geo-api.ts src/lib/local-geo-api.test.ts
       - run: npm test
       - run: npm run build
