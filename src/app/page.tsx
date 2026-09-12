@@ -39,7 +39,17 @@ import { toShape, queryRing, type DrawMode, type DrawnShape, type DrawProgress, 
 import { selectInPolygon } from '@/lib/aoi';
 import { diffSweep, appendEvents, type WatchBaseline, type WatchEvent } from '@/lib/watch';
 import { STORAGE_KEY, serializeShapes, deserializeShapes, shapesToGeoJSON, downloadFile } from '@/lib/aoi-export';
+import type { LocalFeatureCollection, LocalLayerMetadata } from '@/lib/local-geo-api';
 const TokenPanel = dynamic(() => import('@/components/TokenPanel'));
+
+type LocalLayerState = {
+  metadata: LocalLayerMetadata;
+  enabled: boolean;
+  loading: boolean;
+  error?: string;
+  geojson?: LocalFeatureCollection;
+};
+
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
@@ -270,10 +280,49 @@ export default function Dashboard() {
   const [drawnPolygons, setDrawnPolygons] = useState<DrawnShape[]>([]);
   const [demoMode, setDemoMode] = useState(false);
   const [osirisTheme, setOsirisTheme] = useState<'core'|'ghost'>('core');
+  const [localLayers, setLocalLayers] = useState<Record<string, LocalLayerState>>({});
+  const [localDataUnavailable, setLocalDataUnavailable] = useState(false);
+  const localLayerRequestsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     document.body.className = osirisTheme === 'core' ? '' : `theme-${osirisTheme}`;
   }, [osirisTheme]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/local-layers', { cache: 'no-store' })
+      .then(async response => {
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || 'Local data unavailable');
+        if (cancelled) return;
+        setLocalDataUnavailable(!payload.enabled);
+        setLocalLayers(Object.fromEntries((payload.layers || []).map((metadata: LocalLayerMetadata) => [metadata.id, {
+          metadata, enabled: false, loading: false,
+        }])));
+      })
+      .catch(() => { if (!cancelled) setLocalDataUnavailable(true); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const toggleLocalLayer = useCallback((id: string) => {
+    const layer = localLayers[id];
+    if (!layer || layer.loading || localLayerRequestsRef.current.has(id)) return;
+    if (layer.enabled || layer.geojson) {
+      setLocalLayers(prev => ({ ...prev, [id]: { ...prev[id], enabled: !prev[id].enabled, error: undefined } }));
+      return;
+    }
+
+    localLayerRequestsRef.current.add(id);
+    setLocalLayers(prev => ({ ...prev, [id]: { ...prev[id], enabled: true, loading: true, error: undefined } }));
+    fetch(`/api/local-layers/${encodeURIComponent(id)}`, { cache: 'no-store' })
+      .then(async response => {
+        const geojson = await response.json();
+        if (!response.ok) throw new Error('Local data unavailable');
+        setLocalLayers(prev => ({ ...prev, [id]: { ...prev[id], loading: false, geojson } }));
+      })
+      .catch(() => setLocalLayers(prev => ({ ...prev, [id]: { ...prev[id], enabled: false, loading: false, error: 'Unavailable' } })))
+      .finally(() => localLayerRequestsRef.current.delete(id));
+  }, [localLayers]);
 
   /* Style Studio overrides are inline on <body>, so they survive the theme
      swap above and only need reapplying once per load. */
@@ -1160,6 +1209,7 @@ export default function Dashboard() {
           demoMode={demoMode}
           theme={osirisTheme}
           arcgisLayers={arcgisLayers.filter(l => l.visible).map(l => ({ id: l.id, title: l.title, geojson: l.geojson, color: l.color, opacity: l.opacity }))}
+          localLayers={Object.values(localLayers).filter(layer => layer.enabled && layer.geojson).map(layer => ({ id: layer.metadata.id, name: layer.metadata.name, geojson: layer.geojson! }))}
           onMapCenter={setMapCenter}
           route={activeRoute}
           userLocation={
@@ -1352,7 +1402,7 @@ export default function Dashboard() {
 
 
       {/* ── NEW SIDEBAR (Root Level) ── */}
-      {showLayers && !isMobile && <LayerPanel {...terrainPanelProps} data={data} activeLayers={activeLayers} setActiveLayers={setActiveLayers} theme={osirisTheme} setTheme={setOsirisTheme} capabilities={capabilities} />}
+      {showLayers && !isMobile && <LayerPanel {...terrainPanelProps} data={data} activeLayers={activeLayers} setActiveLayers={setActiveLayers} theme={osirisTheme} setTheme={setOsirisTheme} capabilities={capabilities} localLayers={Object.values(localLayers)} localDataUnavailable={localDataUnavailable} onToggleLocalLayer={toggleLocalLayer} />}
 
 
 
@@ -1730,7 +1780,7 @@ export default function Dashboard() {
                           <div><div className="hud-label" style={{fontSize:'9px'}}>NUC</div><div className="hud-value text-[10px]" style={{color:'var(--accent-nuclear)'}}>{(data.infrastructure?.length||0)}</div></div>
                         </div>
                       </div>
-                      <LayerPanel {...terrainPanelProps} data={data} activeLayers={activeLayers} setActiveLayers={setActiveLayers} isMobile={true} theme={osirisTheme} setTheme={setOsirisTheme} capabilities={capabilities} />
+                      <LayerPanel {...terrainPanelProps} data={data} activeLayers={activeLayers} setActiveLayers={setActiveLayers} isMobile={true} theme={osirisTheme} setTheme={setOsirisTheme} capabilities={capabilities} localLayers={Object.values(localLayers)} localDataUnavailable={localDataUnavailable} onToggleLocalLayer={toggleLocalLayer} />
                       <div className="mt-8">
                         <ViewPresets onNavigate={(lat, lng, zoom) => { setFlyToLocation({ lat, lng, zoom, ts: Date.now() }); setMobilePanel(null); }} />
                       </div>

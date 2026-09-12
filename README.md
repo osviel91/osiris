@@ -132,7 +132,7 @@ Osiris is a production-grade OSINT platform that provides situational awareness 
 ## Quick Start
 
 ```bash
-git clone https://github.com/simplifaisoul/osiris.git
+git clone https://github.com/osviel91/osiris.git
 cd osiris
 npm install
 npm run dev
@@ -143,9 +143,9 @@ Open [http://localhost:3000](http://localhost:3000)
 ### Docker / Self-Hosting
 
 ```bash
-git clone https://github.com/simplifaisoul/osiris.git
+git clone https://github.com/osviel91/osiris.git
 cd osiris
-cp .env.template .env     # optional — configure keys / port
+cp .env.example .env      # optional — configure keys / port
 docker compose up -d
 ```
 
@@ -158,8 +158,8 @@ CasaOS and API-key guide.
 **Prebuilt image (GHCR)** — skip the build and pull it directly:
 
 ```bash
-docker pull ghcr.io/simplifaisoul/osiris:latest
-docker run -d -p 3000:3000 --env-file .env ghcr.io/simplifaisoul/osiris:latest
+docker pull ghcr.io/osviel91/osiris:latest
+docker run -d -p 3000:3000 --env-file .env ghcr.io/osviel91/osiris:latest
 ```
 
 **Custom port** — the container always listens on `3000`; set `OSIRIS_PORT` in
@@ -169,7 +169,7 @@ editing the compose file.
 ### Environment Variables
 
 OSIRIS works **partially without any API keys** — all core feeds use public,
-keyless sources. Copy [`.env.template`](.env.template) to `.env` and set only
+keyless sources. Copy [`.env.example`](.env.example) to `.env` and set only
 what you need:
 
 ```env
@@ -181,6 +181,10 @@ OSIRIS_PORT=3000
 SCANNER_URL=
 SCANNER_KEY=
 
+# Optional local GeoJSON layers. GEO_API_URL is never exposed to the browser.
+GEO_API_ENABLED=true
+GEO_API_URL=http://osiris-geo-api:8000
+
 # Optional, for higher rate limits / future sources (see DOCKER.md for signup links)
 FIRMS_API_KEY=                # NASA FIRMS  — firms.modaps.eosdis.nasa.gov/api/map_key/
 OPENSKY_CLIENT_ID=            # OpenSky OAuth2 (since Mar 2025) — opensky-network.org
@@ -190,7 +194,15 @@ AIS_API_KEY=                 # aisstream.io maritime
 ```
 
 > Without `SCANNER_URL`/`SCANNER_KEY` the RECON toolkit returns `503`; every
-> other layer works out of the box. `.env` is gitignored — only the template is committed.
+> other layer works out of the box. `.env` is gitignored — only the example is committed.
+
+### Local Geo API
+
+Set `GEO_API_ENABLED=true` and a server-reachable `GEO_API_URL` to discover custom GeoJSON layers under **LOCAL DATA**. OSIRIS fetches layer metadata on load and a layer's GeoJSON only when it is enabled. The Geo API is optional: missing or unavailable infrastructure leaves core OSIRIS feeds operational.
+
+For a Docker deployment, inspect the target Portainer stack and network immediately before deployment, then use the Geo API service hostname on its shared network. Do not expose its URL to the browser or add upstream data sources directly to OSIRIS.
+
+See [upstream sync instructions](docs/UPSTREAM.md) before updating the fork baseline.
 
 ---
 

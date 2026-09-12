@@ -13,6 +13,7 @@ import CctvPreviews, { type PreviewCamera } from '@/components/CctvPreviews';
 import MapControls from '@/components/MapControls';
 import LiveNewsPreviews, { type PreviewFeed } from '@/components/LiveNewsPreviews';
 import { attachTerrain, type TerrainStatus } from '@/lib/map-terrain';
+import type { LocalFeatureCollection } from '@/lib/local-geo-api';
 
 import { applyMapProjection } from '@/lib/map-projection';
 
@@ -50,6 +51,7 @@ interface OsirisMapProps {
   theme?: 'core' | 'ghost';
   drawnPolygons?: Array<{ id: string; name: string; geojson: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.LineString>; color: string }>;
   arcgisLayers?: Array<{ id: string; title: string; geojson: any; color?: string; opacity?: number }>;
+  localLayers?: Array<{ id: string; name: string; geojson: LocalFeatureCollection }>;
   /** Active draw mode, or null when not drawing. */
   drawMode?: DrawMode | null;
   onDrawProgress?: (p: DrawProgress | null) => void;
@@ -103,9 +105,13 @@ function computeSolarTerminator(): [number, number][] {
   return points;
 }
 
+function htmlEsc(value: unknown): string {
+  return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 const EMPTY_FC = { type: 'FeatureCollection' as const, features: [] };
 
-function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightClick, onViewStateChange, flyToLocation, projection = 'globe', terrainEnabled = false, terrainRetry = 0, terrainFocus = 0, onTerrainStatusChange, mapStyle = 'dark', sweepData, scanTargets = [], demoMode = false, theme = 'core', drawnPolygons = [], arcgisLayers = [], drawMode = null, onDrawComplete, onDrawProgress, onDrawCancel, drawCommand = null, onMapCenter, route = null, userLocation = null, followUser = false, onFollowInterrupt, navigating = false, aircraftAirports = {} }: OsirisMapProps) {
+function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightClick, onViewStateChange, flyToLocation, projection = 'globe', terrainEnabled = false, terrainRetry = 0, terrainFocus = 0, onTerrainStatusChange, mapStyle = 'dark', sweepData, scanTargets = [], demoMode = false, theme = 'core', drawnPolygons = [], arcgisLayers = [], localLayers = [], drawMode = null, onDrawComplete, onDrawProgress, onDrawCancel, drawCommand = null, onMapCenter, route = null, userLocation = null, followUser = false, onFollowInterrupt, navigating = false, aircraftAirports = {} }: OsirisMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
@@ -125,6 +131,8 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
   useEffect(() => { paletteRef.current = palette; }, [palette]);
   const prevDrawnPolygonsRef = useRef<string[]>([]);
   const prevArcgisLayersRef = useRef<string[]>([]);
+  const prevLocalLayersRef = useRef<string[]>([]);
+  const localLayerHandlersRef = useRef<Record<string, (event: maplibregl.MapLayerMouseEvent) => void>>({});
   const satLayerRef = useRef<ReturnType<typeof createSatelliteLayer> | null>(null);
   // pick() returns an index into the array last handed to setPoints, so the
   // matching catalogue rows are kept in the same order to resolve it.
@@ -833,7 +841,6 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     const linkStyle = `display:inline-block;margin-top:8px;padding:5px 12px;font-size:10px;letter-spacing:0.12em;text-decoration:none;border-radius:5px;font-family:'JetBrains Mono',monospace;`;
 
     // ── XSS PROTECTION HELPERS ──
-    const htmlEsc = (s: any): string => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
     const idSafe = (s: any): string => String(s ?? '').replace(/[^a-zA-Z0-9_\.\-]/g, '');
     const urlSafe = (s: any): string => { const u = String(s ?? ''); return /^https?:\/\//i.test(u) ? u : '#'; };
 
@@ -2835,6 +2842,65 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       }
     });
   }, [mapReady, arcgisLayers]);
+
+  // ── LOCAL GEO API LAYERS ──
+  useEffect(() => {
+    if (!mapReady || !mapRef.current) return;
+    const map = mapRef.current;
+    const currentIds = localLayers.map(layer => layer.id);
+
+    for (const id of prevLocalLayersRef.current) {
+      if (currentIds.includes(id)) continue;
+      const sourceId = `local-data-${id}`;
+      const handler = localLayerHandlersRef.current[id];
+      if (handler && map.getLayer(`${sourceId}-circle`)) map.off('click', `${sourceId}-circle`, handler);
+      delete localLayerHandlersRef.current[id];
+      if (map.getLayer(`${sourceId}-circle`)) map.removeLayer(`${sourceId}-circle`);
+      if (map.getSource(sourceId)) map.removeSource(sourceId);
+    }
+    prevLocalLayersRef.current = currentIds;
+
+    for (const layer of localLayers) {
+      const sourceId = `local-data-${layer.id}`;
+      const circleId = `${sourceId}-circle`;
+      if (map.getSource(sourceId)) {
+        (map.getSource(sourceId) as maplibregl.GeoJSONSource).setData(layer.geojson);
+        continue;
+      }
+
+      // A style reload removes sources but not this component's refs.
+      const previousHandler = localLayerHandlersRef.current[layer.id];
+      if (previousHandler && map.getLayer(circleId)) map.off('click', circleId, previousHandler);
+      map.addSource(sourceId, { type: 'geojson', data: layer.geojson });
+      map.addLayer({
+        id: circleId, type: 'circle', source: sourceId,
+        paint: {
+          'circle-color': '#8B5CF6',
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 4, 2, 10, 4, 14, 7, 18, 10],
+          'circle-stroke-width': 1.5,
+          'circle-stroke-color': '#F5F3FF',
+          'circle-opacity': 0.9,
+        },
+      });
+      const handler = (event: maplibregl.MapLayerMouseEvent) => {
+        const feature = event.features?.[0];
+        if (!feature || feature.geometry.type !== 'Point') return;
+        const coordinates = feature.geometry.coordinates;
+        const properties = feature.properties || {};
+        const details = Object.entries(properties)
+          .filter(([key]) => key !== 'name')
+          .map(([key, value]) => `<div><span style="color:#5C5A54;font-size:9px;">${htmlEsc(key).toUpperCase()}</span><br/><span style="color:#B0BEC5;">${htmlEsc(value)}</span></div>`)
+          .join('');
+        popupRef.current?.remove();
+        popupRef.current = new maplibregl.Popup({ closeButton: true, maxWidth: '320px', offset: 14 })
+          .setLngLat(coordinates as [number, number])
+          .setHTML(`<div style="background:rgba(12,14,26,0.95);backdrop-filter:blur(16px);border-radius:10px;padding:16px;font-family:'JetBrains Mono',monospace;border:1px solid rgba(139,92,246,0.35);"><div style="color:#E8E6E0;font-size:15px;font-weight:700;margin-bottom:10px;">${htmlEsc(properties.name || layer.name)}</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px;">${details}</div></div>`)
+          .addTo(map);
+      };
+      localLayerHandlersRef.current[layer.id] = handler;
+      map.on('click', circleId, handler);
+    }
+  }, [mapReady, localLayers]);
 
   const drawCbRef = useRef({ onDrawComplete, onDrawProgress, onDrawCancel });
   /** Set by the drawing effect so on-screen buttons can dispatch into it. */

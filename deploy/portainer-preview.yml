@@ -1,0 +1,17 @@
+services:
+  osiris:
+    image: ${OSIRIS_IMAGE:?Set OSIRIS_IMAGE to ghcr.io/osviel91/osiris:sha-<shortsha>}
+    restart: unless-stopped
+    ports:
+      - "3006:3000"
+    environment:
+      NODE_ENV: production
+      GEO_API_ENABLED: "true"
+      GEO_API_URL: http://osiris-geo-api:8000
+    networks:
+      - geo-osiris
+
+networks:
+  geo-osiris:
+    external: true
+    name: geo-osiris_default

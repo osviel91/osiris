@@ -24,6 +24,9 @@ interface LayerPanelProps {
   onTerrainRetry?: () => void;
   onTerrainFocus?: () => void;
   on3DModeSelected?: () => void;
+  localLayers?: Array<{ metadata: { id: string; name: string; description: string }; enabled: boolean; loading: boolean; error?: string; geojson?: { features: unknown[] } }>;
+  localDataUnavailable?: boolean;
+  onToggleLocalLayer?: (id: string) => void;
 }
 
 interface LayerDef {
@@ -197,7 +200,7 @@ function SubLayerStem() {
   );
 }
 
-function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'core', setTheme, capabilities = {}, terrainStatus = 'idle', onTerrainRetry, onTerrainFocus, on3DModeSelected }: LayerPanelProps) {
+function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'core', setTheme, capabilities = {}, terrainStatus = 'idle', onTerrainRetry, onTerrainFocus, on3DModeSelected, localLayers = [], localDataUnavailable = false, onToggleLocalLayer }: LayerPanelProps) {
   const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
   /**
    * A pinned group stays open when the pointer leaves. Hover-only flyouts are
@@ -245,6 +248,9 @@ function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'co
     ...g,
     layers: g.layers.filter(l => !l.requires || capabilities[l.requires]),
   })).filter(g => g.layers.length > 0);
+  const localDataLabel = 'LOCAL DATA';
+  const localDataActive = localLayers.filter(layer => layer.enabled).length;
+  const localDataOpen = hoveredGroup === localDataLabel || pinnedGroup === localDataLabel;
 
   const getCount = (dk: string, catKey?: string): number | null => {
     if (!dk) return null;
@@ -302,6 +308,22 @@ function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'co
             </div>
           </div>
         ))}
+        <div className="flex flex-col gap-2">
+          <div className="text-[10px] font-mono tracking-[0.2em] uppercase text-white/30 border-b border-white/[0.06] pb-1.5">LOCAL DATA</div>
+          <div className="flex flex-col gap-1">
+            {localDataUnavailable && <span className="px-1 text-[10px] font-mono text-white/30">UNAVAILABLE</span>}
+            {!localDataUnavailable && localLayers.map(layer => (
+              <button key={layer.metadata.id} onClick={() => onToggleLocalLayer?.(layer.metadata.id)} aria-pressed={layer.enabled} className="w-full flex items-center gap-3 px-1 py-2 rounded-md text-left hover:bg-white/[0.04] transition-colors">
+                <ToggleSwitch active={layer.enabled} />
+                <span className={`text-[11px] font-mono uppercase tracking-wider flex-1 ${layer.enabled ? 'text-white/80' : 'text-white/40'}`}>
+                  {layer.metadata.name}
+                  <span className="block mt-0.5 text-[9px] normal-case tracking-normal text-white/35">{layer.loading ? 'Loading...' : layer.error || layer.metadata.description}</span>
+                </span>
+                {layer.geojson && <span className="text-[10px] font-mono tabular-nums text-white/25">{layer.geojson.features.length}</span>}
+              </button>
+            ))}
+          </div>
+        </div>
 
         {/* MOBILE STYLE STUDIO */}
         <div className="flex items-center justify-between mt-2 pt-3 border-t border-white/[0.06] px-1">
@@ -496,6 +518,29 @@ function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'co
             </div>
           );
         })}
+        <div className="relative flex items-center justify-center" onMouseEnter={() => setHoveredGroup(localDataLabel)} onMouseLeave={() => setHoveredGroup(null)}>
+          <button onClick={() => setPinnedGroup(pinnedGroup === localDataLabel ? null : localDataLabel)} aria-expanded={localDataOpen} aria-label={`LOCAL DATA${localDataActive ? ` — ${localDataActive} active` : ''}`} title="LOCAL DATA" className="relative w-10 h-10 flex items-center justify-center cursor-pointer rounded-lg transition-all duration-300 focus:outline-none focus-visible:ring-1 focus-visible:ring-white/40" style={{ background: pinnedGroup === localDataLabel ? 'rgba(255,255,255,0.10)' : localDataOpen ? 'rgba(255,255,255,0.05)' : 'transparent' }}>
+            <Database className="transition-all duration-300" style={{ width: 16, height: 16, color: localDataActive ? 'rgba(255,255,255,0.75)' : localDataOpen ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.22)' }} />
+            {localDataActive > 0 && <span className="absolute top-1 right-1 min-w-[13px] h-[13px] px-[3px] rounded-full flex items-center justify-center text-[9px] font-mono tabular-nums leading-none" style={{ background: 'rgba(0,229,255,0.9)', color: '#04040A', boxShadow: '0 0 6px rgba(0,229,255,0.5)' }}>{localDataActive}</span>}
+          </button>
+          <AnimatePresence>
+            {localDataOpen && (
+              <motion.div initial={{ opacity: 0, x: -8, filter: 'blur(4px)' }} animate={{ opacity: 1, x: 0, filter: 'blur(0px)' }} exit={{ opacity: 0, x: -4, filter: 'blur(2px)' }} transition={{ duration: 0.18, ease: 'easeOut' }} className="absolute left-[52px] top-1/2 -translate-y-1/2 min-w-[220px] rounded-xl p-3 z-[100] pointer-events-auto" style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(40px) saturate(1.5)', WebkitBackdropFilter: 'blur(40px) saturate(1.5)', border: '1px solid rgba(255,255,255,0.06)', boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}>
+                <div className="flex items-center gap-2 mb-2.5 pb-1.5 border-b border-white/[0.04]">
+                  <span className="text-[10px] font-mono tracking-[0.2em] uppercase text-white/35 flex-1">LOCAL DATA</span>
+                  {pinnedGroup === localDataLabel && <button onClick={() => setPinnedGroup(null)} aria-label="Close" className="px-1.5 py-0.5 rounded text-[10px] font-mono text-white/40 hover:text-white hover:bg-white/10 transition-colors">✕</button>}
+                </div>
+                {localDataUnavailable ? <span className="text-[10px] font-mono text-white/30">UNAVAILABLE</span> : <div className="flex flex-col gap-0.5">{localLayers.map(layer => (
+                  <button key={layer.metadata.id} onClick={() => onToggleLocalLayer?.(layer.metadata.id)} aria-pressed={layer.enabled} className="w-full flex items-center gap-3 px-1 py-1.5 rounded-md hover:bg-white/[0.05] transition-colors cursor-pointer text-left focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30">
+                    <ToggleSwitch active={layer.enabled} />
+                    <span className={`text-[11px] font-mono uppercase tracking-wider flex-1 ${layer.enabled ? 'text-white/70' : 'text-white/35'}`}>{layer.metadata.name}<span className="block mt-0.5 text-[9px] normal-case tracking-normal text-white/35">{layer.loading ? 'Loading...' : layer.error || layer.metadata.description}</span></span>
+                    {layer.geojson && <span className="text-[10px] font-mono tabular-nums text-white/20">{layer.geojson.features.length}</span>}
+                  </button>
+                ))}</div>}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
 
       {/* Subtle separator */}
