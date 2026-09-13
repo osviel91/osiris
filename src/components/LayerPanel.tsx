@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plane, Satellite, Sun, AlertTriangle, Camera,
   CloudLightning, Ship, Network, Database, Ghost,
-  Flame, Tv, Radio, Mountain, Anchor, Megaphone, SlidersHorizontal
+  Flame, Tv, Radio, Mountain, Anchor, Megaphone, SlidersHorizontal, RefreshCw
 } from 'lucide-react';
 import StyleStudio from './StyleStudio';
 import { TERRAIN_MIN_ZOOM, type TerrainStatus } from '@/lib/map-terrain';
@@ -27,6 +27,7 @@ interface LayerPanelProps {
   localLayers?: Array<{ metadata: { id: string; name: string; description: string }; enabled: boolean; loading: boolean; error?: string; geojson?: { features: unknown[] } }>;
   localDataUnavailable?: boolean;
   onToggleLocalLayer?: (id: string) => void;
+  onRefreshLocalLayer?: (id: string) => void;
 }
 
 interface LayerDef {
@@ -200,7 +201,7 @@ function SubLayerStem() {
   );
 }
 
-function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'core', setTheme, capabilities = {}, terrainStatus = 'idle', onTerrainRetry, onTerrainFocus, on3DModeSelected, localLayers = [], localDataUnavailable = false, onToggleLocalLayer }: LayerPanelProps) {
+function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'core', setTheme, capabilities = {}, terrainStatus = 'idle', onTerrainRetry, onTerrainFocus, on3DModeSelected, localLayers = [], localDataUnavailable = false, onToggleLocalLayer, onRefreshLocalLayer }: LayerPanelProps) {
   const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
   /**
    * A pinned group stays open when the pointer leaves. Hover-only flyouts are
@@ -313,14 +314,21 @@ function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'co
           <div className="flex flex-col gap-1">
             {localDataUnavailable && <span className="px-1 text-[10px] font-mono text-white/30">UNAVAILABLE</span>}
             {!localDataUnavailable && localLayers.map(layer => (
-              <button key={layer.metadata.id} onClick={() => onToggleLocalLayer?.(layer.metadata.id)} aria-pressed={layer.enabled} className="w-full flex items-center gap-3 px-1 py-2 rounded-md text-left hover:bg-white/[0.04] transition-colors">
-                <ToggleSwitch active={layer.enabled} />
-                <span className={`text-[11px] font-mono uppercase tracking-wider flex-1 ${layer.enabled ? 'text-white/80' : 'text-white/40'}`}>
-                  {layer.metadata.name}
-                  <span className="block mt-0.5 text-[9px] normal-case tracking-normal text-white/35">{layer.loading ? 'Loading...' : layer.error || layer.metadata.description}</span>
-                </span>
-                {layer.geojson && <span className="text-[10px] font-mono tabular-nums text-white/25">{layer.geojson.features.length}</span>}
-              </button>
+              <div key={layer.metadata.id} className="flex items-center gap-1">
+                <button onClick={() => onToggleLocalLayer?.(layer.metadata.id)} aria-pressed={layer.enabled} className="flex-1 flex items-center gap-3 px-1 py-2 rounded-md text-left hover:bg-white/[0.04] transition-colors">
+                  <ToggleSwitch active={layer.enabled} />
+                  <span className={`text-[11px] font-mono uppercase tracking-wider flex-1 ${layer.enabled ? 'text-white/80' : 'text-white/40'}`}>
+                    {layer.metadata.name}
+                    <span className="block mt-0.5 text-[9px] normal-case tracking-normal text-white/35">{layer.loading ? 'Loading...' : layer.error || layer.metadata.description}</span>
+                  </span>
+                  {layer.geojson && <span className="text-[10px] font-mono tabular-nums text-white/25">{layer.geojson.features.length}</span>}
+                </button>
+                {layer.geojson && (
+                  <button onClick={() => onRefreshLocalLayer?.(layer.metadata.id)} disabled={layer.loading} aria-label={`Refresh ${layer.metadata.name}`} title="Refresh from Geo Hub" className="p-1.5 rounded-md text-white/30 hover:text-white/80 hover:bg-white/[0.06] disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                    <RefreshCw className={`w-3.5 h-3.5 ${layer.loading ? 'animate-spin' : ''}`} />
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         </div>
@@ -531,11 +539,18 @@ function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'co
                   {pinnedGroup === localDataLabel && <button onClick={() => setPinnedGroup(null)} aria-label="Close" className="px-1.5 py-0.5 rounded text-[10px] font-mono text-white/40 hover:text-white hover:bg-white/10 transition-colors">✕</button>}
                 </div>
                 {localDataUnavailable ? <span className="text-[10px] font-mono text-white/30">UNAVAILABLE</span> : <div className="flex flex-col gap-0.5">{localLayers.map(layer => (
-                  <button key={layer.metadata.id} onClick={() => onToggleLocalLayer?.(layer.metadata.id)} aria-pressed={layer.enabled} className="w-full flex items-center gap-3 px-1 py-1.5 rounded-md hover:bg-white/[0.05] transition-colors cursor-pointer text-left focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30">
-                    <ToggleSwitch active={layer.enabled} />
-                    <span className={`text-[11px] font-mono uppercase tracking-wider flex-1 ${layer.enabled ? 'text-white/70' : 'text-white/35'}`}>{layer.metadata.name}<span className="block mt-0.5 text-[9px] normal-case tracking-normal text-white/35">{layer.loading ? 'Loading...' : layer.error || layer.metadata.description}</span></span>
-                    {layer.geojson && <span className="text-[10px] font-mono tabular-nums text-white/20">{layer.geojson.features.length}</span>}
-                  </button>
+                  <div key={layer.metadata.id} className="flex items-center gap-1">
+                    <button onClick={() => onToggleLocalLayer?.(layer.metadata.id)} aria-pressed={layer.enabled} className="flex-1 flex items-center gap-3 px-1 py-1.5 rounded-md hover:bg-white/[0.05] transition-colors cursor-pointer text-left focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30">
+                      <ToggleSwitch active={layer.enabled} />
+                      <span className={`text-[11px] font-mono uppercase tracking-wider flex-1 ${layer.enabled ? 'text-white/70' : 'text-white/35'}`}>{layer.metadata.name}<span className="block mt-0.5 text-[9px] normal-case tracking-normal text-white/35">{layer.loading ? 'Loading...' : layer.error || layer.metadata.description}</span></span>
+                      {layer.geojson && <span className="text-[10px] font-mono tabular-nums text-white/20">{layer.geojson.features.length}</span>}
+                    </button>
+                    {layer.geojson && (
+                      <button onClick={() => onRefreshLocalLayer?.(layer.metadata.id)} disabled={layer.loading} aria-label={`Refresh ${layer.metadata.name}`} title="Refresh from Geo Hub" className="p-1 rounded-md text-white/30 hover:text-white/80 hover:bg-white/[0.08] disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                        <RefreshCw className={`w-3 h-3 ${layer.loading ? 'animate-spin' : ''}`} />
+                      </button>
+                    )}
+                  </div>
                 ))}</div>}
               </motion.div>
             )}

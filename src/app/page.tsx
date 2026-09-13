@@ -39,16 +39,15 @@ import { toShape, queryRing, type DrawMode, type DrawnShape, type DrawProgress, 
 import { selectInPolygon } from '@/lib/aoi';
 import { diffSweep, appendEvents, type WatchBaseline, type WatchEvent } from '@/lib/watch';
 import { STORAGE_KEY, serializeShapes, deserializeShapes, shapesToGeoJSON, downloadFile } from '@/lib/aoi-export';
-import type { LocalFeatureCollection, LocalLayerMetadata } from '@/lib/local-geo-api';
+import type { LocalLayerMetadata } from '@/lib/local-geo-api';
+import {
+  applyLocalLayerRefreshError,
+  applyLocalLayerRefreshed,
+  localLayerNeedsFetch,
+  markLocalLayerRefreshing,
+  type LocalLayerState,
+} from '@/lib/local-layer-state';
 const TokenPanel = dynamic(() => import('@/components/TokenPanel'));
-
-type LocalLayerState = {
-  metadata: LocalLayerMetadata;
-  enabled: boolean;
-  loading: boolean;
-  error?: string;
-  geojson?: LocalFeatureCollection;
-};
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(false);
@@ -307,7 +306,7 @@ export default function Dashboard() {
   const toggleLocalLayer = useCallback((id: string) => {
     const layer = localLayers[id];
     if (!layer || layer.loading || localLayerRequestsRef.current.has(id)) return;
-    if (layer.enabled || layer.geojson) {
+    if (!localLayerNeedsFetch(layer)) {
       setLocalLayers(prev => ({ ...prev, [id]: { ...prev[id], enabled: !prev[id].enabled, error: undefined } }));
       return;
     }
@@ -321,6 +320,22 @@ export default function Dashboard() {
         setLocalLayers(prev => ({ ...prev, [id]: { ...prev[id], loading: false, geojson } }));
       })
       .catch(() => setLocalLayers(prev => ({ ...prev, [id]: { ...prev[id], enabled: false, loading: false, error: 'Unavailable' } })))
+      .finally(() => localLayerRequestsRef.current.delete(id));
+  }, [localLayers]);
+
+  const refreshLocalLayer = useCallback((id: string) => {
+    const layer = localLayers[id];
+    if (!layer || !layer.geojson || layer.loading || localLayerRequestsRef.current.has(id)) return;
+
+    localLayerRequestsRef.current.add(id);
+    setLocalLayers(prev => markLocalLayerRefreshing(prev, id));
+    fetch(`/api/local-layers/${encodeURIComponent(id)}`, { cache: 'no-store' })
+      .then(async response => {
+        const geojson = await response.json();
+        if (!response.ok) throw new Error('Local data unavailable');
+        setLocalLayers(prev => applyLocalLayerRefreshed(prev, id, geojson));
+      })
+      .catch(() => setLocalLayers(prev => applyLocalLayerRefreshError(prev, id)))
       .finally(() => localLayerRequestsRef.current.delete(id));
   }, [localLayers]);
 
@@ -1402,7 +1417,7 @@ export default function Dashboard() {
 
 
       {/* ── NEW SIDEBAR (Root Level) ── */}
-      {showLayers && !isMobile && <LayerPanel {...terrainPanelProps} data={data} activeLayers={activeLayers} setActiveLayers={setActiveLayers} theme={osirisTheme} setTheme={setOsirisTheme} capabilities={capabilities} localLayers={Object.values(localLayers)} localDataUnavailable={localDataUnavailable} onToggleLocalLayer={toggleLocalLayer} />}
+      {showLayers && !isMobile && <LayerPanel {...terrainPanelProps} data={data} activeLayers={activeLayers} setActiveLayers={setActiveLayers} theme={osirisTheme} setTheme={setOsirisTheme} capabilities={capabilities} localLayers={Object.values(localLayers)} localDataUnavailable={localDataUnavailable} onToggleLocalLayer={toggleLocalLayer} onRefreshLocalLayer={refreshLocalLayer} />}
 
 
 
@@ -1780,7 +1795,7 @@ export default function Dashboard() {
                           <div><div className="hud-label" style={{fontSize:'9px'}}>NUC</div><div className="hud-value text-[10px]" style={{color:'var(--accent-nuclear)'}}>{(data.infrastructure?.length||0)}</div></div>
                         </div>
                       </div>
-                      <LayerPanel {...terrainPanelProps} data={data} activeLayers={activeLayers} setActiveLayers={setActiveLayers} isMobile={true} theme={osirisTheme} setTheme={setOsirisTheme} capabilities={capabilities} localLayers={Object.values(localLayers)} localDataUnavailable={localDataUnavailable} onToggleLocalLayer={toggleLocalLayer} />
+                      <LayerPanel {...terrainPanelProps} data={data} activeLayers={activeLayers} setActiveLayers={setActiveLayers} isMobile={true} theme={osirisTheme} setTheme={setOsirisTheme} capabilities={capabilities} localLayers={Object.values(localLayers)} localDataUnavailable={localDataUnavailable} onToggleLocalLayer={toggleLocalLayer} onRefreshLocalLayer={refreshLocalLayer} />
                       <div className="mt-8">
                         <ViewPresets onNavigate={(lat, lng, zoom) => { setFlyToLocation({ lat, lng, zoom, ts: Date.now() }); setMobilePanel(null); }} />
                       </div>
