@@ -48,6 +48,24 @@ describe('local Geo API validation', () => {
     expect(normalizeLocalFeatureCollection({ ...featureFixture, features: [{ ...featureFixture.features[0], geometry: { type: 'LineString', coordinates: [] } }] })).toBeNull();
   });
 
+  it('accepts Polygon and MultiPolygon geometries', () => {
+    const polygon = { type: 'Feature', geometry: { type: 'Polygon', coordinates: [[[-3.7, 40.4], [-3.6, 40.4], [-3.6, 40.5], [-3.7, 40.4]]] }, properties: { name: 'area' } };
+    const multiPolygon = { type: 'Feature', geometry: { type: 'MultiPolygon', coordinates: [[[[-3.7, 40.4], [-3.6, 40.4], [-3.6, 40.5], [-3.7, 40.4]]]] }, properties: { name: 'multi' } };
+    const normalized = normalizeLocalFeatureCollection({ type: 'FeatureCollection', features: [polygon, multiPolygon] });
+
+    expect(normalized?.features.map(feature => feature.geometry.type)).toEqual(['Polygon', 'MultiPolygon']);
+    expect(normalized?.features[0].geometry).toEqual(polygon.geometry);
+  });
+
+  it('rejects malformed polygons and out-of-range positions', () => {
+    const feature = (geometry: unknown) => ({ type: 'FeatureCollection', features: [{ type: 'Feature', geometry, properties: {} }] });
+    const ring = [[-3.7, 40.4], [-3.6, 40.4], [-3.7, 40.4]];
+
+    expect(normalizeLocalFeatureCollection(feature({ type: 'Polygon', coordinates: [ring] }))).toBeNull();
+    expect(normalizeLocalFeatureCollection(feature({ type: 'Polygon', coordinates: [[[-200, 40.4], [-3.6, 40.4], [-3.6, 40.5], [-200, 40.4]]] }))).toBeNull();
+    expect(normalizeLocalFeatureCollection(feature({ type: 'MultiPolygon', coordinates: [] }))).toBeNull();
+  });
+
   it('only accepts safe layer identifiers', () => {
     expect(isLocalLayerId('test_1-a')).toBe(true);
     expect(isLocalLayerId('../test')).toBe(false);

@@ -14,6 +14,7 @@ import MapControls from '@/components/MapControls';
 import LiveNewsPreviews, { type PreviewFeed } from '@/components/LiveNewsPreviews';
 import { attachTerrain, type TerrainStatus } from '@/lib/map-terrain';
 import type { LocalFeatureCollection } from '@/lib/local-geo-api';
+import { LOCAL_LAYER_SUFFIXES, localRenderLayers } from '@/lib/local-layer-render';
 
 import { applyMapProjection } from '@/lib/map-projection';
 
@@ -2849,43 +2850,60 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     const map = mapRef.current;
     const currentIds = localLayers.map(layer => layer.id);
 
+    const detachHandler = (id: string) => {
+      const sourceId = `local-data-${id}`;
+      const handler = localLayerHandlersRef.current[id];
+      if (handler) {
+        for (const suffix of LOCAL_LAYER_SUFFIXES) {
+          if (map.getLayer(`${sourceId}-${suffix}`)) map.off('click', `${sourceId}-${suffix}`, handler);
+        }
+      }
+      delete localLayerHandlersRef.current[id];
+    };
+
     for (const id of prevLocalLayersRef.current) {
       if (currentIds.includes(id)) continue;
       const sourceId = `local-data-${id}`;
-      const handler = localLayerHandlersRef.current[id];
-      if (handler && map.getLayer(`${sourceId}-circle`)) map.off('click', `${sourceId}-circle`, handler);
-      delete localLayerHandlersRef.current[id];
-      if (map.getLayer(`${sourceId}-circle`)) map.removeLayer(`${sourceId}-circle`);
+      detachHandler(id);
+      for (const suffix of LOCAL_LAYER_SUFFIXES) {
+        if (map.getLayer(`${sourceId}-${suffix}`)) map.removeLayer(`${sourceId}-${suffix}`);
+      }
       if (map.getSource(sourceId)) map.removeSource(sourceId);
     }
     prevLocalLayersRef.current = currentIds;
 
     for (const layer of localLayers) {
       const sourceId = `local-data-${layer.id}`;
-      const circleId = `${sourceId}-circle`;
-      if (map.getSource(sourceId)) {
-        (map.getSource(sourceId) as maplibregl.GeoJSONSource).setData(layer.geojson);
-        continue;
-      }
+      const specs = localRenderLayers(layer.id, layer.geojson);
+      const specIds = new Set(specs.map(spec => spec.id));
 
       // A style reload removes sources but not this component's refs.
-      const previousHandler = localLayerHandlersRef.current[layer.id];
-      if (previousHandler && map.getLayer(circleId)) map.off('click', circleId, previousHandler);
-      map.addSource(sourceId, { type: 'geojson', data: layer.geojson });
-      map.addLayer({
-        id: circleId, type: 'circle', source: sourceId,
-        paint: {
-          'circle-color': '#8B5CF6',
-          'circle-radius': ['interpolate', ['linear'], ['zoom'], 4, 2, 10, 4, 14, 7, 18, 10],
-          'circle-stroke-width': 1.5,
-          'circle-stroke-color': '#F5F3FF',
-          'circle-opacity': 0.9,
-        },
-      });
+      detachHandler(layer.id);
+
+      if (map.getSource(sourceId)) {
+        (map.getSource(sourceId) as maplibregl.GeoJSONSource).setData(layer.geojson);
+      } else {
+        map.addSource(sourceId, { type: 'geojson', data: layer.geojson });
+      }
+
+      // Drop render layers whose geometry family is no longer present.
+      for (const suffix of LOCAL_LAYER_SUFFIXES) {
+        const layerId = `${sourceId}-${suffix}`;
+        if (!specIds.has(layerId) && map.getLayer(layerId)) map.removeLayer(layerId);
+      }
+      for (const spec of specs) {
+        if (!map.getLayer(spec.id)) {
+          map.addLayer({ id: spec.id, type: spec.type, source: sourceId, filter: spec.filter, paint: spec.paint } as maplibregl.LayerSpecification);
+        }
+      }
+
       const handler = (event: maplibregl.MapLayerMouseEvent) => {
         const feature = event.features?.[0];
-        if (!feature || feature.geometry.type !== 'Point') return;
-        const coordinates = feature.geometry.coordinates;
+        if (!feature) return;
+        const geometry = feature.geometry;
+        const coordinates: [number, number] = geometry.type === 'Point'
+          ? [geometry.coordinates[0] as number, geometry.coordinates[1] as number]
+          : [event.lngLat.lng, event.lngLat.lat];
         const properties = feature.properties || {};
         const details = Object.entries(properties)
           .filter(([key]) => key !== 'name')
@@ -2893,12 +2911,12 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
           .join('');
         popupRef.current?.remove();
         popupRef.current = new maplibregl.Popup({ closeButton: true, maxWidth: '320px', offset: 14 })
-          .setLngLat(coordinates as [number, number])
+          .setLngLat(coordinates)
           .setHTML(`<div style="background:rgba(12,14,26,0.95);backdrop-filter:blur(16px);border-radius:10px;padding:16px;font-family:'JetBrains Mono',monospace;border:1px solid rgba(139,92,246,0.35);"><div style="color:#E8E6E0;font-size:15px;font-weight:700;margin-bottom:10px;">${htmlEsc(properties.name || layer.name)}</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px;">${details}</div></div>`)
           .addTo(map);
       };
       localLayerHandlersRef.current[layer.id] = handler;
-      map.on('click', circleId, handler);
+      for (const spec of specs) map.on('click', spec.id, handler);
     }
   }, [mapReady, localLayers]);
 

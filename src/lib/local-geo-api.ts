@@ -4,11 +4,18 @@ export type LocalLayerMetadata = {
   description: string;
 };
 
+export type LocalPosition = [number, number];
+
+export type LocalGeometry =
+  | { type: 'Point'; coordinates: LocalPosition }
+  | { type: 'Polygon'; coordinates: LocalPosition[][] }
+  | { type: 'MultiPolygon'; coordinates: LocalPosition[][][] };
+
 export type LocalFeatureCollection = {
   type: 'FeatureCollection';
   features: Array<{
     type: 'Feature';
-    geometry: { type: 'Point'; coordinates: [number, number] };
+    geometry: LocalGeometry;
     properties: Record<string, string | number | boolean>;
   }>;
 };
@@ -19,6 +26,36 @@ function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
+}
+
+function isPosition(value: unknown): value is LocalPosition {
+  if (!Array.isArray(value) || value.length !== 2) return false;
+  const [lng, lat] = value;
+  return typeof lng === 'number' && typeof lat === 'number' && Number.isFinite(lng) && Number.isFinite(lat) && lng >= -180 && lng <= 180 && lat >= -90 && lat <= 90;
+}
+
+function isRing(value: unknown): value is LocalPosition[] {
+  return Array.isArray(value) && value.length >= 4 && value.every(isPosition);
+}
+
+/** Returns null for unsupported or malformed geometry; callers reject the whole collection. */
+function normalizeGeometry(value: unknown): LocalGeometry | null {
+  const geometry = record(value);
+  if (!geometry) return null;
+  if (geometry.type === 'Point') {
+    return isPosition(geometry.coordinates) ? { type: 'Point', coordinates: geometry.coordinates } : null;
+  }
+  if (geometry.type === 'Polygon') {
+    const rings = geometry.coordinates;
+    if (!Array.isArray(rings) || rings.length === 0 || !rings.every(isRing)) return null;
+    return { type: 'Polygon', coordinates: rings };
+  }
+  if (geometry.type === 'MultiPolygon') {
+    const polygons = geometry.coordinates;
+    if (!Array.isArray(polygons) || polygons.length === 0 || !polygons.every(polygon => Array.isArray(polygon) && polygon.length > 0 && polygon.every(isRing))) return null;
+    return { type: 'MultiPolygon', coordinates: polygons };
+  }
+  return null;
 }
 
 export function isLocalGeoApiConfigured(): boolean {
@@ -55,18 +92,15 @@ export function normalizeLocalFeatureCollection(value: unknown): LocalFeatureCol
   const features: LocalFeatureCollection['features'] = [];
   for (const item of payload.features) {
     const feature = record(item);
-    const geometry = record(feature?.geometry);
+    const geometry = normalizeGeometry(feature?.geometry);
     const properties = record(feature?.properties);
-    const coordinates = geometry?.coordinates;
-    if (feature?.type !== 'Feature' || geometry?.type !== 'Point' || !Array.isArray(coordinates) || coordinates.length !== 2 || !properties) return null;
-    const [lng, lat] = coordinates;
-    if (typeof lng !== 'number' || typeof lat !== 'number' || !Number.isFinite(lng) || !Number.isFinite(lat) || lng < -180 || lng > 180 || lat < -90 || lat > 90) return null;
+    if (feature?.type !== 'Feature' || !geometry || !properties) return null;
 
     const safeProperties: Record<string, string | number | boolean> = {};
     for (const [key, property] of Object.entries(properties)) {
       if (typeof property === 'string' || typeof property === 'boolean' || (typeof property === 'number' && Number.isFinite(property))) safeProperties[key] = property;
     }
-    features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [lng, lat] }, properties: safeProperties });
+    features.push({ type: 'Feature', geometry, properties: safeProperties });
   }
   return { type: 'FeatureCollection', features };
 }
