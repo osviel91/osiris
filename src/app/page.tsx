@@ -39,7 +39,22 @@ import { toShape, queryRing, type DrawMode, type DrawnShape, type DrawProgress, 
 import { selectInPolygon } from '@/lib/aoi';
 import { diffSweep, appendEvents, type WatchBaseline, type WatchEvent } from '@/lib/watch';
 import { STORAGE_KEY, serializeShapes, deserializeShapes, shapesToGeoJSON, downloadFile } from '@/lib/aoi-export';
-import type { LocalLayerMetadata } from '@/lib/local-geo-api';
+import {
+  normalizeLocalFeaturePage,
+  type LocalFeaturePage,
+  type LocalLayerMetadata,
+} from '@/lib/local-geo-api';
+import {
+  bboxParam,
+  bufferedBbox,
+  isViewportLayer,
+  simplifyForZoom,
+  ViewportLoader,
+  viewportKey,
+  VIEWPORT_PAGE_LIMIT,
+  VIEWPORT_PRECISION,
+  type Bounds,
+} from '@/lib/local-layer-viewport';
 import {
   applyLocalLayerRefreshError,
   applyLocalLayerRefreshed,
@@ -142,13 +157,21 @@ function ViewSegment({ active, onClick, title, icon: Icon, label, layoutId }: {
   );
 }
 
+async function fetchLocalFeaturePage(id: string, query: URLSearchParams, signal: AbortSignal): Promise<LocalFeaturePage> {
+  const response = await fetch(`/api/local-layers/${encodeURIComponent(id)}/features?${query.toString()}`, { cache: 'no-store', signal });
+  if (!response.ok) throw new Error('Local data unavailable');
+  const page = normalizeLocalFeaturePage(await response.json());
+  if (!page) throw new Error('Local data unavailable');
+  return page;
+}
+
 export default function Dashboard() {
   const dataRef = useRef<any>({});
   const [dataVersion, setDataVersion] = useState(0);
   const data = dataRef.current;
 
   const [backendStatus, setBackendStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
-  const [mapView, setMapView] = useState({ zoom: 2.5, latitude: 20 });
+  const [mapView, setMapView] = useState<{ zoom: number; latitude: number; longitude: number; bounds: Bounds | null }>({ zoom: 2.5, latitude: 20, longitude: 0, bounds: null });
   const [flyToLocation, setFlyToLocation] = useState<{ lat: number; lng: number; zoom?: number; ts: number } | null>(null);
   const [globalStats, setGlobalStats] = useState<any>(null);
   const mouseCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
@@ -282,6 +305,8 @@ export default function Dashboard() {
   const [localLayers, setLocalLayers] = useState<Record<string, LocalLayerState>>({});
   const [localDataUnavailable, setLocalDataUnavailable] = useState(false);
   const localLayerRequestsRef = useRef<Set<string>>(new Set());
+  const viewportLoadersRef = useRef<Record<string, ViewportLoader>>({});
+  const viewportDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     document.body.className = osirisTheme === 'core' ? '' : `theme-${osirisTheme}`;
@@ -305,7 +330,13 @@ export default function Dashboard() {
 
   const toggleLocalLayer = useCallback((id: string) => {
     const layer = localLayers[id];
-    if (!layer || layer.loading || localLayerRequestsRef.current.has(id)) return;
+    if (!layer) return;
+    if (isViewportLayer(layer.metadata)) {
+      if (layer.enabled) viewportLoadersRef.current[id]?.cancel();
+      setLocalLayers(prev => ({ ...prev, [id]: { ...prev[id], enabled: !prev[id].enabled, error: undefined } }));
+      return;
+    }
+    if (layer.loading || localLayerRequestsRef.current.has(id)) return;
     if (!localLayerNeedsFetch(layer)) {
       setLocalLayers(prev => ({ ...prev, [id]: { ...prev[id], enabled: !prev[id].enabled, error: undefined } }));
       return;
@@ -325,6 +356,11 @@ export default function Dashboard() {
 
   const refreshLocalLayer = useCallback((id: string) => {
     const layer = localLayers[id];
+    if (layer && isViewportLayer(layer.metadata)) {
+      viewportLoadersRef.current[id]?.cancel();
+      setLocalLayers(prev => ({ ...prev, [id]: { ...prev[id], error: undefined } }));
+      return;
+    }
     if (!layer || !layer.geojson || layer.loading || localLayerRequestsRef.current.has(id)) return;
 
     localLayerRequestsRef.current.add(id);
@@ -338,6 +374,46 @@ export default function Dashboard() {
       .catch(() => setLocalLayers(prev => applyLocalLayerRefreshError(prev, id)))
       .finally(() => localLayerRequestsRef.current.delete(id));
   }, [localLayers]);
+
+  useEffect(() => {
+    const bounds = mapView.bounds;
+    if (!bounds) return;
+    if (viewportDebounceRef.current) clearTimeout(viewportDebounceRef.current);
+    viewportDebounceRef.current = setTimeout(() => {
+      const simplify = simplifyForZoom(mapView.zoom);
+      const bbox = bufferedBbox(bounds);
+      const key = viewportKey(bbox, simplify);
+      for (const layer of Object.values(localLayers)) {
+        if (!layer.enabled || !isViewportLayer(layer.metadata)) continue;
+        const id = layer.metadata.id;
+        const loader = (viewportLoadersRef.current[id] ??= new ViewportLoader());
+        if (loader.isCurrent(key)) continue;
+        setLocalLayers(prev => {
+          const current = prev[id];
+          if (!current || current.loading) return prev;
+          return { ...prev, [id]: { ...current, loading: true, error: undefined } };
+        });
+        void loader.load({
+          key,
+          limit: VIEWPORT_PAGE_LIMIT,
+          fetchPage: ({ cursor, limit, signal }) => {
+            const query = new URLSearchParams({
+              bbox: bboxParam(bbox),
+              limit: String(limit),
+              precision: String(VIEWPORT_PRECISION),
+              simplify: String(simplify),
+            });
+            if (cursor) query.set('cursor', cursor);
+            return fetchLocalFeaturePage(id, query, signal);
+          },
+        }).then(result => {
+          if (result.status === 'loaded') setLocalLayers(prev => applyLocalLayerRefreshed(prev, id, result.geojson));
+          else if (result.status === 'failed') setLocalLayers(prev => applyLocalLayerRefreshError(prev, id));
+        });
+      }
+    }, 200);
+    return () => { if (viewportDebounceRef.current) clearTimeout(viewportDebounceRef.current); };
+  }, [localLayers, mapView]);
 
   /* Style Studio overrides are inline on <body>, so they survive the theme
      swap above and only need reapplying once per load. */

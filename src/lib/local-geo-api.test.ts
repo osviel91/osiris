@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getLocalLayer, getLocalLayers, isLocalLayerId, normalizeLocalFeatureCollection, normalizeLocalLayers } from './local-geo-api';
+import { buildLocalFeatureQuery, getLocalLayer, getLocalLayerFeatures, getLocalLayers, isLocalLayerId, normalizeLocalFeatureCollection, normalizeLocalFeaturePage, normalizeLocalLayers } from './local-geo-api';
 import { GET as listLayers } from '@/app/api/local-layers/route';
 import { GET as getLayer } from '@/app/api/local-layers/[id]/route';
 
 const layersFixture = {
   layers: [{ id: 'test', name: 'Test Layer', description: 'Static validation layer', endpoint: '/layers/test' }],
 };
+
+const catalogFixture = [{ slug: 'test', geometry_types: ['Point'], feature_count: 3 }];
 
 const featureFixture = {
   type: 'FeatureCollection',
@@ -84,12 +86,23 @@ describe('local Geo API routes', () => {
     process.env.GEO_API_URL = 'http://geo-api:8000';
     const fetch = vi.fn()
       .mockResolvedValueOnce(response(layersFixture))
+      .mockResolvedValueOnce(response(catalogFixture))
       .mockResolvedValueOnce(response(featureFixture));
     vi.stubGlobal('fetch', fetch);
 
-    expect(await getLocalLayers()).toEqual([{ id: 'test', name: 'Test Layer', description: 'Static validation layer' }]);
+    expect(await getLocalLayers()).toEqual([{ id: 'test', name: 'Test Layer', description: 'Static validation layer', geometryTypes: ['Point'], featureCount: 3 }]);
     expect(await getLocalLayer('test')).toEqual(featureFixture);
-    expect(fetch.mock.calls.map(([url]) => String(url))).toEqual(['http://geo-api:8000/layers', 'http://geo-api:8000/layers/test']);
+    expect(fetch.mock.calls.map(([url]) => String(url))).toEqual(['http://geo-api:8000/layers', 'http://geo-api:8000/api/v1/layers', 'http://geo-api:8000/layers/test']);
+  });
+
+  it('degrades to compat metadata when the catalog is unavailable', async () => {
+    process.env.GEO_API_ENABLED = 'true';
+    process.env.GEO_API_URL = 'http://geo-api:8000';
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(response(layersFixture))
+      .mockResolvedValueOnce(response({ error: 'missing' }, false)));
+
+    expect(await getLocalLayers()).toEqual([{ id: 'test', name: 'Test Layer', description: 'Static validation layer' }]);
   });
 
   it('returns controlled errors for failures and invalid ids', async () => {
@@ -99,5 +112,38 @@ describe('local Geo API routes', () => {
 
     expect((await listLayers()).status).toBe(502);
     expect((await getLayer(new Request('http://osiris/api/local-layers/../test'), { params: Promise.resolve({ id: '../test' }) })).status).toBe(400);
+  });
+});
+
+describe('local feature pages', () => {
+  it('normalizes feature pages and rejects invalid payloads', () => {
+    expect(normalizeLocalFeaturePage({ ...featureFixture, next_cursor: 'abc' })?.nextCursor).toBe('abc');
+    expect(normalizeLocalFeaturePage(featureFixture)?.nextCursor).toBeNull();
+    expect(normalizeLocalFeaturePage({ type: 'FeatureCollection', features: 'nope' })).toBeNull();
+  });
+
+  it('builds a whitelisted feature query', () => {
+    const query = new URLSearchParams(buildLocalFeatureQuery(new URLSearchParams('bbox=1,2,3,4&limit=10&cursor=abc&precision=6&simplify=0.001&evil=1&status=archived')));
+
+    expect([...query.keys()].sort()).toEqual(['bbox', 'cursor', 'limit', 'precision', 'simplify']);
+    expect(query.has('evil')).toBe(false);
+    expect(query.has('status')).toBe(false);
+  });
+
+  it('fetches a feature page through the bounded endpoint', async () => {
+    process.env.GEO_API_ENABLED = 'true';
+    process.env.GEO_API_URL = 'http://geo-api:8000';
+    const fetch = vi.fn().mockResolvedValueOnce(response({ ...featureFixture, next_cursor: 'next' }));
+    vi.stubGlobal('fetch', fetch);
+
+    const page = await getLocalLayerFeatures('test', new URLSearchParams('bbox=1,2,3,4&limit=500&precision=6&simplify=0.001&evil=1'));
+    expect(page.nextCursor).toBe('next');
+    expect(page.geojson.features).toHaveLength(3);
+
+    const url = new URL(String(fetch.mock.calls[0][0]));
+    expect(url.pathname).toBe('/api/v1/layers/test/features');
+    expect(url.searchParams.get('bbox')).toBe('1,2,3,4');
+    expect(url.searchParams.get('precision')).toBe('6');
+    expect(url.searchParams.has('evil')).toBe(false);
   });
 });
