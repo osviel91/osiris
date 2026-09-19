@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 
-import { getLocalLayerFeatures, isLocalGeoApiConfigured, isLocalLayerId } from '@/lib/local-geo-api';
+import { getLocalLayerFeatures, isLocalGeoApiConfigured, isLocalLayerId, type LocalFeaturePage } from '@/lib/local-geo-api';
+
+export function toLocalFeaturePageResponse(page: LocalFeaturePage) {
+  return { ...page.geojson, next_cursor: page.nextCursor };
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -14,7 +18,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   }
   try {
     const search = new URL(request.url).searchParams;
-    return NextResponse.json(await getLocalLayerFeatures(id, search));
+    return NextResponse.json(toLocalFeaturePageResponse(await getLocalLayerFeatures(id, search)));
   } catch {
     return NextResponse.json({ error: 'Local data unavailable' }, { status: 502 });
   }
