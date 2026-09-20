@@ -4,17 +4,17 @@ import { GET as listLayers } from '@/app/api/local-layers/route';
 import { GET as getLayer } from '@/app/api/local-layers/[id]/route';
 
 const layersFixture = {
-  layers: [{ id: 'test', name: 'Test Layer', description: 'Static validation layer', endpoint: '/layers/test' }],
+  layers: [{ id: 'aemet', name: 'AEMET stations', description: 'Backend-provided weather stations', endpoint: '/layers/aemet' }],
 };
 
-const catalogFixture = [{ slug: 'test', geometry_types: ['Point'], feature_count: 3 }];
+const catalogFixture = [{ slug: 'aemet', geometry_types: ['Point'], feature_count: 3 }];
 
 const featureFixture = {
   type: 'FeatureCollection',
   features: [
-    { type: 'Feature', geometry: { type: 'Point', coordinates: [-3.7038, 40.4168] }, properties: { id: 'test-1', name: 'Madrid test point', source: 'local', category: 'test', status: 'online' } },
-    { type: 'Feature', geometry: { type: 'Point', coordinates: [2.1734, 41.3851] }, properties: { id: 'test-2', name: 'Barcelona test point', source: 'local', category: 'test', status: 'online' } },
-    { type: 'Feature', geometry: { type: 'Point', coordinates: [-0.3763, 39.4699] }, properties: { id: 'test-3', name: 'Valencia test point', source: 'local', category: 'test', status: 'online' } },
+    { type: 'Feature', geometry: { type: 'Point', coordinates: [-3.7038, 40.4168] }, properties: { id: 'station-1', name: 'Madrid station', source: 'aemet', category: 'weather', status: 'online' } },
+    { type: 'Feature', geometry: { type: 'Point', coordinates: [2.1734, 41.3851] }, properties: { id: 'station-2', name: 'Barcelona station', source: 'aemet', category: 'weather', status: 'online' } },
+    { type: 'Feature', geometry: { type: 'Point', coordinates: [-0.3763, 39.4699] }, properties: { id: 'station-3', name: 'Valencia station', source: 'aemet', category: 'weather', status: 'online' } },
   ],
 };
 
@@ -30,7 +30,13 @@ afterEach(() => {
 
 describe('local Geo API validation', () => {
   it('normalizes the live layer metadata fixture', () => {
-    expect(normalizeLocalLayers(layersFixture)).toEqual([{ id: 'test', name: 'Test Layer', description: 'Static validation layer' }]);
+    expect(normalizeLocalLayers(layersFixture)).toEqual([{ id: 'aemet', name: 'AEMET stations', description: 'Backend-provided weather stations' }]);
+  });
+
+  it('supports zero, one, and multiple backend-provided layers', () => {
+    expect(normalizeLocalLayers({ layers: [] })).toEqual([]);
+    expect(normalizeLocalLayers(layersFixture)).toHaveLength(1);
+    expect(normalizeLocalLayers({ layers: [layersFixture.layers[0], { id: 'amateur-radio', name: 'Amateur radio', description: 'Backend-provided radio stations' }] })).toHaveLength(2);
   });
 
   it('accepts the live GeoJSON fixture and strips unsafe properties', () => {
@@ -41,7 +47,7 @@ describe('local Geo API validation', () => {
         properties: { ...featureFixture.features[0].properties, extra: { nested: true }, empty: null },
       }, ...featureFixture.features.slice(1)],
     };
-    expect(normalizeLocalFeatureCollection(payload)?.features[0].properties).toEqual({ id: 'test-1', name: 'Madrid test point', source: 'local', category: 'test', status: 'online' });
+    expect(normalizeLocalFeatureCollection(payload)?.features[0].properties).toEqual({ id: 'station-1', name: 'Madrid station', source: 'aemet', category: 'weather', status: 'online' });
   });
 
   it('rejects malformed layers and unsupported GeoJSON', () => {
@@ -90,9 +96,9 @@ describe('local Geo API routes', () => {
       .mockResolvedValueOnce(response(featureFixture));
     vi.stubGlobal('fetch', fetch);
 
-    expect(await getLocalLayers()).toEqual([{ id: 'test', name: 'Test Layer', description: 'Static validation layer', geometryTypes: ['Point'], featureCount: 3 }]);
-    expect(await getLocalLayer('test')).toEqual(featureFixture);
-    expect(fetch.mock.calls.map(([url]) => String(url))).toEqual(['http://geo-api:8000/layers', 'http://geo-api:8000/api/v1/layers', 'http://geo-api:8000/layers/test']);
+    expect(await getLocalLayers()).toEqual([{ id: 'aemet', name: 'AEMET stations', description: 'Backend-provided weather stations', geometryTypes: ['Point'], featureCount: 3 }]);
+    expect(await getLocalLayer('aemet')).toEqual(featureFixture);
+    expect(fetch.mock.calls.map(([url]) => String(url))).toEqual(['http://geo-api:8000/layers', 'http://geo-api:8000/api/v1/layers', 'http://geo-api:8000/layers/aemet']);
   });
 
   it('degrades to compat metadata when the catalog is unavailable', async () => {
@@ -102,7 +108,7 @@ describe('local Geo API routes', () => {
       .mockResolvedValueOnce(response(layersFixture))
       .mockResolvedValueOnce(response({ error: 'missing' }, false)));
 
-    expect(await getLocalLayers()).toEqual([{ id: 'test', name: 'Test Layer', description: 'Static validation layer' }]);
+    expect(await getLocalLayers()).toEqual([{ id: 'aemet', name: 'AEMET stations', description: 'Backend-provided weather stations' }]);
   });
 
   it('returns controlled errors for failures and invalid ids', async () => {
@@ -136,12 +142,12 @@ describe('local feature pages', () => {
     const fetch = vi.fn().mockResolvedValueOnce(response({ ...featureFixture, next_cursor: 'next' }));
     vi.stubGlobal('fetch', fetch);
 
-    const page = await getLocalLayerFeatures('test', new URLSearchParams('bbox=1,2,3,4&limit=500&precision=6&simplify=0.001&evil=1'));
+    const page = await getLocalLayerFeatures('aemet', new URLSearchParams('bbox=1,2,3,4&limit=500&precision=6&simplify=0.001&evil=1'));
     expect(page.nextCursor).toBe('next');
     expect(page.geojson.features).toHaveLength(3);
 
     const url = new URL(String(fetch.mock.calls[0][0]));
-    expect(url.pathname).toBe('/api/v1/layers/test/features');
+    expect(url.pathname).toBe('/api/v1/layers/aemet/features');
     expect(url.searchParams.get('bbox')).toBe('1,2,3,4');
     expect(url.searchParams.get('precision')).toBe('6');
     expect(url.searchParams.has('evil')).toBe(false);
