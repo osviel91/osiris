@@ -24,6 +24,13 @@ export function markLocalLayerRefreshing(state: LocalLayerMap, id: string): Loca
   return { ...state, [id]: { ...layer, loading: true, error: undefined } };
 }
 
+/** Stops a viewport request without discarding the last rendered collection. */
+export function disableLocalLayer(state: LocalLayerMap, id: string): LocalLayerMap {
+  const layer = state[id];
+  if (!layer) return state;
+  return { ...state, [id]: { ...layer, enabled: false, loading: false, error: undefined } };
+}
+
 /** Replaces the cached collection only after a successful fetch. */
 export function applyLocalLayerRefreshed(state: LocalLayerMap, id: string, geojson: LocalFeatureCollection): LocalLayerMap {
   const layer = state[id];

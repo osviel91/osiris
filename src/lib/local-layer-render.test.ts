@@ -41,6 +41,19 @@ describe('local layer rendering', () => {
     ]);
   });
 
+  it('renders valid large marine polygons without size-based rejection', () => {
+    const marine: LocalFeatureCollection = {
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        geometry: { type: 'MultiPolygon', coordinates: [[[[-179, -80], [179, -80], [179, 80], [-179, 80], [-179, -80]]]] },
+        properties: { name: 'Marine area' },
+      }],
+    };
+
+    expect(localRenderLayers('marine', marine).map(layer => layer.type)).toEqual(['fill', 'line']);
+  });
+
   it('renders mixed collections per geometry family', () => {
     const mixed: LocalFeatureCollection = { type: 'FeatureCollection', features: [...point().features, ...polygon().features] };
 

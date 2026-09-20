@@ -102,6 +102,52 @@ describe('ViewportLoader', () => {
     expect(loader.isCurrent('k2')).toBe(true);
   });
 
+  it('waits for every page before reporting loaded', async () => {
+    const loader = new ViewportLoader();
+    const fetchPage = vi.fn(({ cursor }: { cursor: string | null }): Promise<LocalFeaturePage> => Promise.resolve(cursor
+      ? { geojson: { type: 'FeatureCollection', features: [feature('b')] }, nextCursor: null }
+      : { geojson: { type: 'FeatureCollection', features: [feature('a')] }, nextCursor: 'next' }));
+
+    const result = await loader.load({ key: 'multi', fetchPage });
+
+    expect(result).toEqual({ status: 'loaded', geojson: { type: 'FeatureCollection', features: [feature('a'), feature('b')] } });
+    expect(fetchPage).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not let a stale completion control the current request', async () => {
+    const loader = new ViewportLoader();
+    let releaseOld!: (page: LocalFeaturePage) => void;
+    const old = loader.load({ key: 'old', fetchPage: () => new Promise(resolve => { releaseOld = resolve; }) });
+    const current = loader.load({ key: 'current', fetchPage: async () => ({ geojson: { type: 'FeatureCollection', features: [feature('current')] }, nextCursor: null }) });
+
+    expect((await current).status).toBe('loaded');
+    releaseOld({ geojson: { type: 'FeatureCollection', features: [feature('old')] }, nextCursor: null });
+    expect((await old).status).toBe('aborted');
+    expect(loader.isCurrent('current')).toBe(true);
+  });
+
+  it('reports a failed page after preserving responsibility for cached data to the caller', async () => {
+    const loader = new ViewportLoader();
+    const result = await loader.load({ key: 'error', fetchPage: async () => { throw new Error('offline'); } });
+
+    expect(result.status).toBe('failed');
+    expect(loader.isCurrent('error')).toBe(false);
+  });
+
+  it('handles rapid viewport changes without allowing an older request to win', async () => {
+    const loader = new ViewportLoader();
+    const loads = ['a', 'b', 'c'].map((key, index) => loader.load({
+      key,
+      fetchPage: ({ signal }) => new Promise<LocalFeaturePage>((resolve, reject) => {
+        const timer = setTimeout(() => resolve({ geojson: { type: 'FeatureCollection', features: [feature(key)] }, nextCursor: null }), index === 2 ? 0 : 10);
+        signal.addEventListener('abort', () => { clearTimeout(timer); reject(Object.assign(new Error('aborted'), { name: 'AbortError' })); });
+      }),
+    }));
+
+    expect((await Promise.all(loads)).map(result => result.status)).toEqual(['aborted', 'aborted', 'loaded']);
+    expect(loader.isCurrent('c')).toBe(true);
+  });
+
   it('reports failure and allows a retry', async () => {
     const loader = new ViewportLoader();
 

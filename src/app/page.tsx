@@ -58,6 +58,7 @@ import {
 import {
   applyLocalLayerRefreshError,
   applyLocalLayerRefreshed,
+  disableLocalLayer,
   localLayerNeedsFetch,
   markLocalLayerRefreshing,
   type LocalLayerState,
@@ -333,7 +334,7 @@ export default function Dashboard() {
     if (!layer) return;
     if (isViewportLayer(layer.metadata)) {
       if (layer.enabled) viewportLoadersRef.current[id]?.cancel();
-      setLocalLayers(prev => ({ ...prev, [id]: { ...prev[id], enabled: !prev[id].enabled, error: undefined } }));
+      setLocalLayers(prev => prev[id]?.enabled ? disableLocalLayer(prev, id) : { ...prev, [id]: { ...prev[id], enabled: true, error: undefined } });
       return;
     }
     if (layer.loading || localLayerRequestsRef.current.has(id)) return;

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyLocalLayerRefreshError,
   applyLocalLayerRefreshed,
+  disableLocalLayer,
   LOCAL_LAYER_REFRESH_ERROR,
   localLayerNeedsFetch,
   markLocalLayerRefreshing,
@@ -87,6 +88,14 @@ describe('local layer refresh state', () => {
     const next = applyLocalLayerRefreshError(cachedDisabled, 'a');
     expect(next.a.enabled).toBe(false);
     expect(next.a.geojson?.features).toHaveLength(2);
+  });
+
+  it('clears loading when a layer is disabled and keeps cached data', () => {
+    const state: LocalLayerMap = { a: layer({ enabled: true, loading: true, geojson: collection(2) }) };
+    const next = disableLocalLayer(state, 'a');
+
+    expect(next.a).toMatchObject({ enabled: false, loading: false, geojson: state.a.geojson });
+    expect(next.a.error).toBeUndefined();
   });
 
   it('keeps the toggle caching rule intact', () => {
