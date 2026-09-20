@@ -53,3 +53,9 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Redeploy OSIRIS in Portainer
+        env:
+          PORTAINER_WEBHOOK: ${{ secrets.PORTAINER_OSIRIS_WEBHOOK }}
+        run: |
+          curl -fsS -X POST "$PORTAINER_WEBHOOK"
