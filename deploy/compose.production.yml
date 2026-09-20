@@ -2,7 +2,7 @@ name: geo-osiris
 
 services:
   geo-api:
-    image: ghcr.io/osviel91/geo-osiris-api@sha256:5af12f29d37a679bfe1754555f660790fdef0cc11ee8d16beed5a9e235596999
+    image: ghcr.io/osviel91/geo-osiris-api@sha256:9f14ef4523041e00af8fc7e775ab30871d256c91be9e4b335d4efb43fe071d5d
     platform: linux/amd64
     container_name: osiris-geo-api
     restart: unless-stopped
