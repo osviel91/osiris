@@ -323,7 +323,7 @@ function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'co
                   </span>
                   {layer.geojson && <span className="text-[10px] font-mono tabular-nums text-white/25">{layer.geojson.features.length}</span>}
                 </button>
-                {layer.geojson && (
+                 {(layer.geojson || layer.error) && (
                   <button onClick={() => onRefreshLocalLayer?.(layer.metadata.id)} disabled={layer.loading} aria-label={`Refresh ${layer.metadata.name}`} title="Refresh from Geo Hub" className="p-1.5 rounded-md text-white/30 hover:text-white/80 hover:bg-white/[0.06] disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
                     <RefreshCw className={`w-3.5 h-3.5 ${layer.loading ? 'animate-spin' : ''}`} />
                   </button>
@@ -545,7 +545,7 @@ function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'co
                       <span className={`text-[11px] font-mono uppercase tracking-wider flex-1 ${layer.enabled ? 'text-white/70' : 'text-white/35'}`}>{layer.metadata.name}<span className="block mt-0.5 text-[9px] normal-case tracking-normal text-white/35">{layer.loading ? 'Loading...' : layer.error || layer.metadata.description}</span></span>
                       {layer.geojson && <span className="text-[10px] font-mono tabular-nums text-white/20">{layer.geojson.features.length}</span>}
                     </button>
-                    {layer.geojson && (
+                     {(layer.geojson || layer.error) && (
                       <button onClick={() => onRefreshLocalLayer?.(layer.metadata.id)} disabled={layer.loading} aria-label={`Refresh ${layer.metadata.name}`} title="Refresh from Geo Hub" className="p-1 rounded-md text-white/30 hover:text-white/80 hover:bg-white/[0.08] disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
                         <RefreshCw className={`w-3 h-3 ${layer.loading ? 'animate-spin' : ''}`} />
                       </button>
