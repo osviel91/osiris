@@ -1,0 +1,30 @@
+name: osiris-production
+
+services:
+  osiris:
+    container_name: osiris
+    image: ghcr.io/osviel91/osiris:latest
+    restart: unless-stopped
+    ports:
+      - "3005:3000"
+    environment:
+      NODE_ENV: production
+      NODE_OPTIONS: --dns-result-order=ipv4first
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      GEO_API_ENABLED: "true"
+      GEO_API_URL: http://osiris-geo-api:8000
+    cpus: 1.0
+    mem_limit: 4g
+    mem_reservation: 256m
+    memswap_limit: 8g
+    networks:
+      - default
+      - geo-osiris
+
+networks:
+  default:
+    name: osiris-production_default
+  geo-osiris:
+    external: true
+    name: geo-osiris_default
