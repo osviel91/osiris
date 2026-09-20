@@ -49,6 +49,7 @@ import {
   bufferedBbox,
   isViewportLayer,
   simplifyForZoom,
+  shouldStartViewportLoad,
   ViewportLoader,
   viewportKey,
   VIEWPORT_PAGE_LIMIT,
@@ -388,7 +389,7 @@ export default function Dashboard() {
         if (!layer.enabled || !isViewportLayer(layer.metadata)) continue;
         const id = layer.metadata.id;
         const loader = (viewportLoadersRef.current[id] ??= new ViewportLoader());
-        if (loader.isCurrent(key)) continue;
+        if (!shouldStartViewportLoad(layer, loader, key)) continue;
         setLocalLayers(prev => {
           const current = prev[id];
           if (!current || current.loading) return prev;

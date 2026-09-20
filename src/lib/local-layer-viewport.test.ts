@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { LocalFeatureCollection, LocalFeaturePage, LocalLayerMetadata } from './local-geo-api';
-import { bboxParam, bufferedBbox, isViewportLayer, loadViewportPages, simplifyForZoom, ViewportLoader, viewportKey } from './local-layer-viewport';
+import { bboxParam, bufferedBbox, isViewportLayer, loadViewportPages, shouldStartViewportLoad, simplifyForZoom, ViewportLoader, viewportKey } from './local-layer-viewport';
 
 const pointLayer: LocalLayerMetadata = { id: 'points', name: 'Points', description: '', geometryTypes: ['Point'], featureCount: 12 };
 const bigPointLayer: LocalLayerMetadata = { id: 'many', name: 'Many', description: '', geometryTypes: ['Point'], featureCount: 900 };
@@ -73,6 +73,14 @@ describe('page assembly', () => {
 });
 
 describe('ViewportLoader', () => {
+  it('does not replace a request while its layer is loading', () => {
+    const loader = new ViewportLoader();
+
+    expect(shouldStartViewportLoad({ enabled: true, loading: false }, loader, 'a')).toBe(true);
+    expect(shouldStartViewportLoad({ enabled: true, loading: true }, loader, 'b')).toBe(false);
+    expect(shouldStartViewportLoad({ enabled: false, loading: false }, loader, 'c')).toBe(false);
+  });
+
   it('skips an identical in-flight key', async () => {
     const loader = new ViewportLoader();
     const page: LocalFeaturePage = { geojson: { type: 'FeatureCollection', features: [feature('a')] }, nextCursor: null };

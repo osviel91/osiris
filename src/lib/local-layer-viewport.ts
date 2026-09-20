@@ -89,6 +89,14 @@ export type ViewportLoadOptions = {
   maxPages?: number;
 };
 
+export function shouldStartViewportLoad(
+  layer: { enabled: boolean; loading: boolean },
+  loader: Pick<ViewportLoader, 'isCurrent'>,
+  key: string,
+): boolean {
+  return layer.enabled && !layer.loading && !loader.isCurrent(key);
+}
+
 /** Serializes viewport loads: skips duplicates, aborts stale requests, ignores late responses. */
 export class ViewportLoader {
   private controller: AbortController | null = null;
