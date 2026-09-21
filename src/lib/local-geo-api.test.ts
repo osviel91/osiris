@@ -39,6 +39,16 @@ describe('local Geo API validation', () => {
     expect(normalizeLocalLayers({ layers: [layersFixture.layers[0], { id: 'amateur-radio', name: 'Amateur radio', description: 'Backend-provided radio stations' }] })).toHaveLength(2);
   });
 
+  it('does not expose the legacy test layer from the compatibility response', async () => {
+    process.env.GEO_API_ENABLED = 'true';
+    process.env.GEO_API_URL = 'http://geo-api:8000';
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(response({ layers: [{ id: 'test', name: 'Test Layer', description: 'Legacy fixture' }, ...layersFixture.layers] }))
+      .mockResolvedValueOnce(response(catalogFixture)));
+
+    expect(await getLocalLayers()).toEqual([{ id: 'aemet', name: 'AEMET stations', description: 'Backend-provided weather stations', geometryTypes: ['Point'], featureCount: 3 }]);
+  });
+
   it('accepts the live GeoJSON fixture and strips unsafe properties', () => {
     const payload = {
       ...featureFixture,

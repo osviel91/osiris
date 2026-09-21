@@ -162,7 +162,7 @@ export async function getLocalLayers(): Promise<LocalLayerMetadata[]> {
       if (layer && typeof layer.slug === 'string') geometry.set(layer.slug, optionalLayerGeometry(layer));
     }
   }
-  return layers.map((layer) => ({ ...layer, ...geometry.get(layer.id) }));
+  return layers.filter((layer) => layer.id !== 'test').map((layer) => ({ ...layer, ...geometry.get(layer.id) }));
 }
 
 export async function getLocalLayer(id: string): Promise<LocalFeatureCollection> {
