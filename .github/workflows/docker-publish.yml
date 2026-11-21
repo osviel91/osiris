@@ -58,4 +58,17 @@ jobs:
         env:
           PORTAINER_WEBHOOK: ${{ secrets.PORTAINER_OSIRIS_WEBHOOK }}
         run: |
-          curl -fsS -X POST "$PORTAINER_WEBHOOK"
+          webhook_url="$(python3 - <<'PY'
+          import os
+          from urllib.parse import urlsplit, urlunsplit
+
+          webhook = urlsplit(os.environ["PORTAINER_WEBHOOK"])
+          if webhook.scheme != "https" or webhook.hostname != "portainer.osviel.duckdns.org":
+              raise SystemExit("PORTAINER_OSIRIS_WEBHOOK must use the Portainer HTTPS host")
+          if not webhook.path.startswith("/api/stacks/webhooks/"):
+              raise SystemExit("PORTAINER_OSIRIS_WEBHOOK must be a Portainer stack webhook URL")
+
+          print(urlunsplit((webhook.scheme, f"{webhook.hostname}:8443", webhook.path, webhook.query, "")))
+          PY
+          )"
+          curl -fsS -X POST "$webhook_url"
