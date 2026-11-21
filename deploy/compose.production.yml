@@ -75,6 +75,8 @@ services:
     depends_on:
       - authelia
       - geo-admin
+    ports:
+      - "${ADMIN_PROXY_BIND_IP:?Set ADMIN_PROXY_BIND_IP to the Docker host LAN IP}:${ADMIN_PROXY_PORT:-8088}:80"
     networks:
       - geo-internal
 
