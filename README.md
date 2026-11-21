@@ -202,7 +202,7 @@ Set `GEO_API_ENABLED=true` and a server-reachable `GEO_API_URL` to discover cust
 
 For a Docker deployment, inspect the target Portainer stack and network immediately before deployment, then use the Geo API service hostname on its shared network. Do not expose its URL to the browser or add upstream data sources directly to OSIRIS.
 
-The production Geo Admin stack publishes only its authenticated `admin-proxy` on the Docker host LAN interface. Set `ADMIN_PROXY_BIND_IP` to that host's LAN IP in Portainer; `ADMIN_PROXY_PORT` is optional and defaults to `8088`. The proxy forwards both the Authelia portal and Geo Admin by hostname. Do not publish Authelia or Geo Admin's own ports, and restrict the chosen host port to the LAN in the firewall.
+The production Geo Admin stack connects only its authenticated `admin-proxy` to the existing external Docker network `authelia-net`, shared with Nginx Proxy Manager. Configure NPM to forward both `auth.osviel.duckdns.org` and `geo-admin.osviel.duckdns.org` to `http://osiris-geo-admin-proxy:80`; the proxy routes by hostname and applies Authelia authentication to Geo Admin. Authelia, Geo Admin, the API, and PostGIS are not published on host ports.
 
 See [upstream sync instructions](docs/UPSTREAM.md) before updating the fork baseline.
 

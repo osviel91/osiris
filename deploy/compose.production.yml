@@ -75,10 +75,9 @@ services:
     depends_on:
       - authelia
       - geo-admin
-    ports:
-      - "${ADMIN_PROXY_BIND_IP:?Set ADMIN_PROXY_BIND_IP to the Docker host LAN IP}:${ADMIN_PROXY_PORT:-8088}:80"
     networks:
       - geo-internal
+      - authelia-net
 
   postgis:
     image: postgis/postgis@sha256:44126d872ac91993766c341e369c539e8196614321765d36a6f1bab0419a5fa5
@@ -130,3 +129,7 @@ networks:
   geo-osiris_default:
     external: true
     name: geo-osiris_default
+
+  authelia-net:
+    external: true
+    name: authelia-net
